@@ -1,0 +1,2 @@
+id|nct_id|agency_class|lead_or_collaborator|name
+260456633|NCT04470427|INDUSTRY|lead|ModernaTX, Inc.

@@ -1,0 +1,11 @@
+nct_id,company,ticker,exchange,status,wikidata_uri
+NCT00000145,Bausch & Lomb Incorporated,BLCO,New York Stock Exchange,Active,http://www.wikidata.org/entity/Q811857
+NCT00000172,"Janssen, LP",JNJ,New York Stock Exchange,Active,http://www.wikidata.org/entity/Q1053653
+NCT00000174,Novartis,NVS,New York Stock Exchange,Active,http://www.wikidata.org/entity/Q58169716
+NCT00000390,GEIGY Pharmaceuticals,NVS,New York Stock Exchange,Active,http://www.wikidata.org/entity/Q3100166
+NCT00000412,Merck Sharp & Dohme LLC,MRK,New York Stock Exchange,Active,http://www.wikidata.org/entity/Q58219685
+NCT00000625,Bristol-Myers Squibb,BMY,New York Stock Exchange,Active,http://www.wikidata.org/entity/Q266423
+NCT00000625,Glaxo Wellcome,GSK,London Stock Exchange,Active,http://www.wikidata.org/entity/Q911693
+NCT00000626,Amgen,AMGN,Nasdaq,Active,http://www.wikidata.org/entity/Q470517
+NCT00000627,Pfizer,PFE,New York Stock Exchange,Active,http://www.wikidata.org/entity/Q206921
+NCT00000628,Merck Sharp & Dohme LLC,MRK,New York Stock Exchange,Active,http://www.wikidata.org/entity/Q58219685
