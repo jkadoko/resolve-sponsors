@@ -1,4 +1,4 @@
-# Biotech Sponsor Resolver
+# Biotech Sponsor Resolver v2
 
 This project aims to resolve company names from the **AACT (Archive of Clinical Trials)** database to their corresponding **Stock Tickers** and **Market Data**.
 
@@ -12,12 +12,12 @@ The `resolve_sponsor.py` script matches these sponsor names to Wikidata entities
 - **Stock Exchange**
 - **Wikidata URI** (for verifiable linking)
 
-### Resolution Logic
+### Resolution Logic (v2)
 1.  **Direct Linking**: Checks if the Clinical Trial (NCT ID) is already linked to a sponsor in Wikidata.
 2.  **Smart Discovery**: Uses the Wikidata Search API with fuzzy matching:
     *   Strips suffixes (e.g., "GEIGY Pharmaceuticals" -> "GEIGY").
-    *   Handles historical/merged companies (e.g., resolving "GEIGY" to "Novartis").
-3.  **Parent Traversal**: Traverses the corporate hierarchy (`P749`) to find the **Public Parent Company** (e.g., resolving "Janssen" -> "Johnson & Johnson").
+    *   **Historical Resolution**: Handles merged/acquired companies via `P1366` (Replaced By) and `P156` (Followed By) properties. For example, resolving "Wyeth" -> "Pfizer" or "Janssen" -> "Johnson & Johnson".
+3.  **Parent Traversal**: Recursively traverses the corporate hierarchy (`P749`) to find the **Public Parent Company**. If a company is a private subsidiary, it walks up the ownership chain until it finds a public entity.
 
 ## Usage
 

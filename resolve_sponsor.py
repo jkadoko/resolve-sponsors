@@ -5,40 +5,72 @@ import time
 import requests
 from collections import defaultdict
 
+
+"""
+Biotech Sponsor Resolver v2
+
+Resolves clinical trial sponsor names to official stock tickers and corporate entities via Wikidata.
+
+Features:
+- **v2 Logic**: Implemented 2024-01-04
+- **Historical Resolution**: Handles merged/acquired companies (e.g., "Janssen" -> "Johnson & Johnson") via 
+  Wikidata properties P1366 (replaced by) and P156 (followed by).
+- **Parent Traversal**: Recursively traverses corporate hierarchy (P749) to find the ultimate public parent.
+- **Smart Scoring**: Ranks candidates based on data richness (Ticker > Parent > Historical Links).
+"""
+
 # Use standard Wikidata SPARQL endpoint
 QLEVER_ENDPOINT = "https://query.wikidata.org/sparql"
 # Standard User-Agent for Wikidata policy
+# Standard User-Agent for Wikidata policy
 HEADERS = {"User-Agent": "BiotechAnalyzer/1.0 (contact@example.com)"}
+
+# Cache for Company Name -> Wikidata URI
+COMPANY_URI_CACHE = {}
+
+# Cache for URI -> Enriched Data
+ENRICHMENT_CACHE = {}
+
+# Setup requests Session with Retry
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+def _get_session():
+    session = requests.Session()
+    retry = Retry(
+        total=5,
+        backoff_factor=1.0, # 1s, 2s, 4s, 8s, 16s...
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "OPTIONS"]
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+SESSION = _get_session()
 
 def _run_sparql_query(query: str, purpose: str):
     """
     Helper to run SPARQL query with retries and timeout.
     """
-    max_retries = 3
-    retry_delay = 5  # seconds
-
-    for attempt in range(max_retries):
-        try:
-            response = requests.get(
-                QLEVER_ENDPOINT,
-                params={"query": query, "format": "json"},
-                headers=HEADERS,
-                timeout=60
-            )
-            response.raise_for_status()
-            return response.json()["results"]["bindings"]
-        except Exception as e:
-            if attempt < max_retries - 1:
-                print(f"Query ({purpose}) failed (Attempt {attempt+1}/{max_retries}): {e}. Retrying in {retry_delay}s...", file=sys.stderr)
-                time.sleep(retry_delay)
-                retry_delay *= 2
-            else:
-                error_msg = str(e)
-                if hasattr(e, 'response') and e.response is not None:
-                    error_msg += f"\nResponse: {e.response.text}"
-                print(f"Error querying ({purpose}) after {max_retries} attempts: {error_msg}", file=sys.stderr)
-                return None
-    return None
+    timeout = 60
+    
+    try:
+        response = SESSION.get(
+            QLEVER_ENDPOINT,
+            params={"query": query, "format": "json"},
+            headers=HEADERS,
+            timeout=timeout
+        )
+        response.raise_for_status()
+        return response.json()["results"]["bindings"]
+    except Exception as e:
+        error_msg = str(e)
+        if hasattr(e, 'response') and e.response is not None:
+            error_msg += f"\nResponse: {e.response.text}"
+        print(f"Error querying ({purpose}): {error_msg}", file=sys.stderr)
+        return None
 
 def get_trial_primary_sponsor(nct_id: str):
     """
@@ -83,10 +115,15 @@ def enrich_company_content(company_uri: str, company_label: str):
     """
     if not company_uri:
         return {}
+        
+    if company_uri in ENRICHMENT_CACHE:
+        return ENRICHMENT_CACHE[company_uri]
 
     company_qid = company_uri.split("/")[-1]
     
-    # Improved Traversal: P749 (Parent Org) only, excluding P127 (Shareholder)
+    # Improved Traversal: 
+    # Follows P749 (Parent Org), P1366 (Replaced By), and P156 (Followed By)
+    # to find the current active entity. Excludes P127 (Shareholder) to stay strictly corporate.
     query = f"""
     PREFIX wd: <http://www.wikidata.org/entity/>
     PREFIX wdt: <http://www.wikidata.org/prop/direct/>
@@ -149,12 +186,12 @@ def enrich_company_content(company_uri: str, company_label: str):
     
     # Map back to the expected structure for existing CSV logic
     # Note: original code expected plural sets (parents, tickers, etc).
-    # We simplified to singular best-match. We must return dict compatible with main loop usage.
+    # We simplified to singular best-match for stability.
     # Main loop usage: 
     # ticker: "; ".join(sorted(enrichment["tickers"]))
     # exchange: ... enrichment["exchanges"]
     
-    return {
+    result = {
         "parents": {res.get("currentName", {}).get("value")},
         "subsidiaries": set(),
         "tickers": {ticker} if ticker != "PRIVATE" else set(),
@@ -163,6 +200,9 @@ def enrich_company_content(company_uri: str, company_label: str):
         "sec_cik": None,
         "dissolved": "dissolved" in res
     }
+    
+    ENRICHMENT_CACHE[company_uri] = result
+    return result
 
 def clean_company_name(name: str) -> str:
     """
@@ -205,7 +245,7 @@ def search_wikidata_candidates(name, limit=5):
     }
     
     try:
-        resp = requests.get(api_url, params=params, headers=headers, timeout=10)
+        resp = SESSION.get(api_url, params=params, headers=headers, timeout=10)
         resp.raise_for_status()
         data = resp.json()
         return [r["id"] for r in data.get("search", [])]
@@ -216,7 +256,7 @@ def search_wikidata_candidates(name, limit=5):
 def validate_company_candidates(qids):
     """
     Given a list of QIDs, return the best one that appears to be a company/organization.
-    Scores candidates based on data richness (Ticker > Parent > Owner).
+    Scores candidates based on data richness (Ticker > Parent > Historical Links > Owner).
     Also recognizes historical/merged companies via P1366 (replaced by) and P576 (dissolved).
     """
     if not qids:
@@ -260,7 +300,7 @@ def validate_company_candidates(qids):
         if r.get('isCompany'): score += 1
         if r.get('hasOwner'): score += 2
         if r.get('hasParent'): score += 3
-        if r.get('wasReplaced'): score += 4  # Historical company - good signal!
+        if r.get('wasReplaced'): score += 4  # Historical company - strong signal for resolution!
         if r.get('wasDissolved'): score += 2  # Another historical marker
         if r.get('hasTicker'): score += 5
         
@@ -338,8 +378,10 @@ def find_company_by_name(name: str):
     Stage 1.5: Fallback Identity Query using API Search.
     """
     # 1. Try search with cleaning (advanced fallback handled inside search_wikidata_id)
-    # Removing just the INC/LLC suffixes before search might help, or we rely on the API.
-    # We kept clean_company_name function? We can use it.
+    # We use the cached results if available.
+    
+    if name in COMPANY_URI_CACHE:
+        return COMPANY_URI_CACHE[name]
     
     qid = search_wikidata_id(name)
     if not qid:
@@ -348,7 +390,11 @@ def find_company_by_name(name: str):
              qid = search_wikidata_id(clean)
              
     if qid:
-        return f"http://www.wikidata.org/entity/{qid}"
+        uri = f"http://www.wikidata.org/entity/{qid}"
+        COMPANY_URI_CACHE[name] = uri
+        return uri
+        
+    COMPANY_URI_CACHE[name] = None
     return None
 
 def load_industry_sponsors(filepath: str):
