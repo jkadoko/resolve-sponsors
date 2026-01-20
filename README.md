@@ -1,4 +1,4 @@
-# Biotech Sponsor Resolver v2
+# Biotech Sponsor Resolver
 
 This project resolves company names from the **AACT (Archive of Clinical Trials)** database and **OpenFDA** drug product data to their corresponding **Stock Tickers** and **Market Data**.
 
