@@ -1,48 +1,96 @@
 # Biotech Sponsor Resolver v2
 
-This project aims to resolve company names from the **AACT (Archive of Clinical Trials)** database to their corresponding **Stock Tickers** and **Market Data**.
+This project resolves company names from the **AACT (Archive of Clinical Trials)** database and **OpenFDA** drug product data to their corresponding **Stock Tickers** and **Market Data**.
 
 ## The Problem
-The AACT database provides sponsor names (e.g., "Janssen, LP", "GEIGY Pharmaceuticals", "Merck Sharp & Dohme") as free-text strings. These names often do not match the official corporate entity names used in financial markets, making it difficult to link clinical trial data to stock performance.
+Biotech data sources often use free-text strings for sponsor names (e.g., "Janssen, LP", "GEIGY Pharmaceuticals", "Bristol-Myers Squibb Company"). These names often do not match the official corporate entity names used in financial markets, making it difficult to link clinical trial or product data to stock performance.
 
 ## The Solution
-The `resolve_sponsor.py` script matches these sponsor names to Wikidata entities to retrieve:
-- **Official Company Name**
-- **Stock Ticker** (e.g., JNJ, MRK, NVS)
-- **Stock Exchange**
-- **Wikidata URI** (for verifiable linking)
+This project provides two main scripts to resolve sponsors using **Wikidata**:
 
-### Resolution Logic (v2)
-1.  **Direct Linking**: Checks if the Clinical Trial (NCT ID) is already linked to a sponsor in Wikidata.
-2.  **Smart Discovery**: Uses the Wikidata Search API with fuzzy matching:
-    *   Strips suffixes (e.g., "GEIGY Pharmaceuticals" -> "GEIGY").
-    *   **Historical Resolution**: Handles merged/acquired companies via `P1366` (Replaced By) and `P156` (Followed By) properties. For example, resolving "Wyeth" -> "Pfizer" or "Janssen" -> "Johnson & Johnson".
-3.  **Parent Traversal**: Recursively traverses the corporate hierarchy (`P749`) to find the **Public Parent Company**. If a company is a private subsidiary, it walks up the ownership chain until it finds a public entity.
+1.  **`resolve_products.py`**: Resolves a specific ticker to its products or a company name to its ticker.
+2.  **`extract_openfda_products.py`**: Extracts products from the OpenFDA dataset and resolves their sponsors to tickers.
+3.  **`resolve_sponsor.py`**: The core logic library for resolution (also runnable as a standalone script for AACT data).
 
-## Usage
+### Core Resolution Logic
+The resolution engine uses a multi-step approach:
+1.  **Direct Linking**: Checks known identifiers.
+2.  **Smart Discovery**: Uses Wikidata Search API with fuzzy matching and alias checking (`skos:altLabel`).
+3.  **Historical Resolution**: Handles merged/acquired companies via `P1366` (Replaced By) and `P156` (Followed By) properties.
+4.  **Parent Traversal**: Recursively traverses the corporate hierarchy (`P749`) to find the **Public Parent Company**.
+5.  **Ticker Verification**: Validates candidates by checking for stock tickers (`P249`) or exchange listings (`P414`).
 
-### Prerequisites
-- Python 3.x
-- `requests` library
+---
 
-### Running the Script
-To resolve sponsors from the provided dataset:
+## 1. OpenFDA Product Extraction
+**Script**: `extract_openfda_products.py`
+
+Extracts commercial products and resolves their sponsors from the OpenFDA `drug-drugsfda` JSON dataset.
+
+### Usage
+```bash
+python extract_openfda_products.py
+```
+
+### Options
+-   `--filter <STRING>`: Process only sponsors containing this case-insensitive string (e.g., `--filter "BRISTOL"`).
+-   `--limit <INT>`: Limit the number of unique sponsors processed (e.g., `--limit 10`).
+
+### Output (`products.csv`)
+Columns include:
+-   `product_name`: Brand name (e.g., ELIQUIS).
+-   `active_ingredients_name`: e.g., APIXABAN.
+-   `active_ingredients_strength`: e.g., 2.5MG; 5MG.
+-   `rxcui`: RxNorm Concept Unique Identifier.
+-   `resolved_sponsor_name`: Resolved parent company.
+-   `ticker`: Stock ticker (e.g., BMY).
+-   `wikidata_uri`: URI for the resolved entity.
+
+An `unresolved_sponsors.csv` file is also generated for debugging.
+
+---
+
+## 2. Ticker & Product Lookup
+**Script**: `resolve_products.py`
+
+Quickly look up a company's ticker or their known products from Wikidata.
+
+### Usage
+**Resolve Ticker from Name**:
+```bash
+python resolve_products.py --ticker "Novo Nordisk" 
+# Output: Found company: Novo Nordisk A/S (NVO)
+```
+
+**Get Products for Ticker**:
+```bash
+python resolve_products.py --ticker "NVO"
+# Output: Lists products like Ozempic, Wegovy, etc.
+```
+
+---
+
+## 3. General Sponsor Resolution
+**Script**: `resolve_sponsor.py`
+
+Resolves a list of sponsor names from a file (legacy/AACT mode).
+
+### Usage
 ```bash
 python resolve_sponsor.py --sponsors-file data/sponsors.txt --output sponsors_resolved.csv
 ```
 
-### Options
-- `--limit <N>`: Process only the first N records (useful for testing).
-- `--output <filename>`: Specify the output CSV file (default: `sponsors_resolved.csv`).
+---
 
-## Output Format
-The script generates a CSV with the following columns:
-- `nct_id`: The Clinical Trial ID.
-- `company`: The resolved official company name.
-- `ticker`: The stock ticker (or "Private/Unlisted").
-- `exchange`: The stock exchange.
-- `status`: Active or Inactive/Dissolved.
-- `wikidata_uri`: The permanent Wikidata URI for the resolved entity.
+## Prerequisites
+-   Python 3.x
+-   Dependencies: `requests`, `ijson`
+
+Install dependencies:
+```bash
+pip install -r requirements.txt
+```
 
 ## Data Source
-Original data schema: [AACT Schema](https://aact.ctti-clinicaltrials.org/schema)
+-   **OpenFDA**: [`drug-drugsfda.json`](https://open.fda.gov/apis/drug/drugsfda/download/)
+-   **Wikidata**: Live SPARQL and API access.
